@@ -1,0 +1,65 @@
+from enum import Enum
+
+
+class Player:
+    def __init__(self, name):
+        self.name = name
+        self.wins = 0
+
+    def play(self):
+        print(f"{self.name}'s turn")
+        return input("Paper, scissors, rock:\n")
+
+    def show_score(self):
+        return f"{self.name} has won {self.wins} games"
+
+
+class Game:
+    winning_combinations = {
+        "rock": "scissors",
+        "paper": "rock",
+        "scissors": "paper"
+    }
+
+    class Move(Enum):
+        ROCK = "rock"
+        PAPER = "paper"
+        SCISSORS = "scissors"
+
+    def __init__(self):
+            pass
+
+    def compare(self, p1, p2):
+        p1_move = self.Move[p1.play().upper()]
+        p2_move = self.Move[p2.play().upper()]
+        if p1_move == p2_move:
+            print("It's a tie!")
+        elif self.winning_combinations[p1_move.value] == p2_move.value:
+            print(f"{p1.name} wins!")
+            p1.wins += 1
+        else:
+            print(f"{p2.name} wins!")
+            p2.wins += 1
+
+    def play_again(self):
+        while True:
+            play_again = input("Do you want to play again? (y/n): ").lower()
+            if play_again == "y":
+                return True
+            elif play_again == "n":
+                return False
+            else:
+                print("Invalid input. Please enter 'y' or 'n'.")
+
+
+new_game = Game()
+player_one = Player("Player One")
+player_two = Player("Player Two")
+
+while True:
+    new_game.compare(player_one, player_two)
+
+    if not new_game.play_again():
+        break
+
+print(f"\nFinal score:\n{player_one.show_score()}\n{player_two.show_score()}")
