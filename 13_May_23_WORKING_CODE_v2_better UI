@@ -1,0 +1,198 @@
+import asyncio
+import disnake
+import os
+from enum import Enum
+from dotenv import load_dotenv
+from random import choice
+from disnake import ApplicationCommandInteraction
+
+
+load_dotenv()
+
+TOKEN = os.getenv('DISCORD_TOKEN')
+bot_name = "Paper Scissors Rock"
+
+intents = disnake.Intents().all()
+bot = disnake.Client(intents=intents)
+
+
+class Player:
+    def __init__(self, member):
+        self.member = member
+        self.name = member.display_name
+        self.mention = member.mention
+
+    async def play(self, ctx):
+        buttons = [
+            disnake.ui.Button(style=disnake.ButtonStyle.secondary, label="Rock", custom_id="rock"),
+            disnake.ui.Button(style=disnake.ButtonStyle.secondary, label="Paper", custom_id="paper"),
+            disnake.ui.Button(style=disnake.ButtonStyle.secondary, label="Scissors", custom_id="scissors"),
+        ]
+
+        await ctx.send(
+            f"{self.mention}, choose your move:",
+            components=[disnake.ui.ActionRow(*buttons)],
+        )
+
+        def check_move(interaction):
+            return interaction.user == self.member and interaction.data["custom_id"] in ['rock', 'paper', 'scissors']
+
+        try:
+            interaction = await bot.wait_for("button_click", timeout=30.0, check=check_move)
+            move = interaction.data["custom_id"]
+            await interaction.message.delete()  # Delete the entire message
+            return move
+        except asyncio.TimeoutError:
+            await ctx.send(f"{self.mention}, you took too long to respond. The game has been cancelled.")
+
+
+class Game:
+    class Move(Enum):
+        ROCK = "rock"
+        PAPER = "paper"
+        SCISSORS = "scissors"
+
+        @property
+        def defeats(self):
+            winning_combinations = {
+                self.ROCK: self.SCISSORS,
+                self.PAPER: self.ROCK,
+                self.SCISSORS: self.PAPER,
+            }
+            return winning_combinations.get(self)
+
+    def __init__(self):
+        pass
+
+    async def compare(self, p1, p2, ctx, with_bot):
+        if not p1 and not p2:
+            return "Neither player has responded - ending game", None
+        elif not p1:
+            return f"{p2.member.mention} wins by default!", p2
+        elif not p2:
+            return f"{p1.member.mention} wins by default!", p1
+
+        p1_move = self.Move[(await p1.play(ctx)).upper()]
+
+        if with_bot:
+            p2_move = self.get_bot_move()
+            p2_name = bot_name
+        else:
+            p2_move = self.Move[(await p2.play(ctx)).upper()]
+            p2_name = p2.member.mention
+
+        move_message = f"{p2_name} played {p2_move.name}!"
+        result_message = ""
+        loser = None
+
+        if p1_move == p2_move:
+            result_message = f"{p1.member.mention} and {p2_name} tied with {p1_move.name}!"
+            winner = None
+        elif p1_move.defeats == p2_move:
+            winner = p1
+            loser = p2
+        else:
+            winner = p2
+            loser = p1
+
+        if winner:
+            winning_move = p1_move if winner == p1 else p2_move
+            result_message = f"{winner.member.mention} beat {loser.member.mention} with {winning_move.name}!"
+
+        full_message = f"{move_message}\n{result_message}"
+        return full_message, winner
+
+    def get_bot_move(self):
+        return choice(list(self.Move))
+
+    def get_bot_player(self):
+        return Player(bot.user)
+
+    async def play(self):
+        return self.get_bot_move().value
+
+    async def play_again(self, ctx):
+        while True:
+            await ctx.send("Do you want to play again? (y/n): ")
+            message = await bot.wait_for('message', check=lambda m: m.author == ctx.author)
+            play_again = message.content.lower()
+            if play_again == "y":
+                return True
+            elif play_again == "n":
+                return False
+            else:
+                await ctx.send("Invalid input. Please enter 'y' or 'n'.")
+
+
+@bot.event
+async def on_application_command(inter: ApplicationCommandInteraction):
+    if inter.data["name"] == "rps":
+        await start_rps_game(inter)
+
+
+async def start_rps_game(ctx: ApplicationCommandInteraction):
+    async def get_with_bot():
+        await ctx.send("Do you want to play with the bot? (y/n)")
+        while True:
+            message = await bot.wait_for('message', check=lambda m: m.author == ctx.author)
+            if message.content.lower() == "y":
+                return True
+            elif message.content.lower() == "n":
+                return False
+            else:
+                await ctx.send("Invalid input. Please enter 'y' or 'n'.")
+
+    with_bot = await get_with_bot()
+
+    game = Game()
+    player1 = Player(ctx.author)
+    if with_bot:
+        player2 = game.get_bot_player()
+    else:
+        await ctx.send("Please mention the other player.")
+
+        def check_player2(message):
+            return message.author != bot.user and message.mentions and len(message.mentions) == 1
+
+        message = await bot.wait_for('message', check=check_player2)
+        member = message.mentions[0]
+        player2 = Player(member)
+
+    players = [player1, player2]
+    while True:
+        result, winner = await game.compare(players[0], players[1], ctx, with_bot)
+        await ctx.send(result)
+        if winner:
+            await ctx.send(f"{winner.member.mention} wins!")
+            play_again = await game.play_again(ctx)
+            if play_again:
+                with_bot = await get_with_bot()
+                if with_bot:
+                    players = [player1, game.get_bot_player()]
+                else:
+                    players = [player1, player2]
+                continue
+            else:
+                break
+        else:
+            play_again = await game.play_again(ctx)
+            if play_again:
+                with_bot = await get_with_bot()
+                if with_bot:
+                    players = [player1, game.get_bot_player()]
+                else:
+                    players = [player1, player2]
+                continue
+            else:
+                break
+
+    await ctx.send("Thanks for playing!")
+
+
+@bot.event
+async def on_ready():
+    print(f"{bot.user.name} has connected to Discord!")
+
+
+bot.run(TOKEN)
+
